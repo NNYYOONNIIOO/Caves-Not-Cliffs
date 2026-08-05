@@ -43,7 +43,9 @@ public class V118DripstoneWorldBridgeTest {
         assertState(V118DripstoneFeature.State.DRIPSTONE_BLOCK,
             fixture.dripstone.getDefaultState(), fixture);
         assertState(V118DripstoneFeature.State.POINTED_DRIPSTONE,
-            fixture.pointed.getDefaultState(), fixture);
+            fixture.dry.getDefaultState(), fixture);
+        assertState(V118DripstoneFeature.State.POINTED_DRIPSTONE,
+            fixture.wet.getDefaultState(), fixture);
 
         for (V118OreMaterial material : EnumSet.of(V118OreMaterial.STONE,
                 V118OreMaterial.DEEPSLATE, V118OreMaterial.TUFF,
@@ -107,7 +109,7 @@ public class V118DripstoneWorldBridgeTest {
     private static void assertState(V118DripstoneFeature.State expected, IBlockState state,
             Fixture fixture) {
         assertEquals(expected, V118DripstoneWorldBridge.classify(state, fixture.mapper,
-            fixture.dripstone, fixture.pointed));
+            fixture.dripstone, fixture.dry, fixture.wet));
     }
 
     private static final class Fixture {
@@ -115,7 +117,8 @@ public class V118DripstoneWorldBridgeTest {
             new IBlockState[V118OreMaterial.values().length];
         private final V118OreBlockMapper mapper;
         private final Block dripstone = new BlockDripstone.BlockCustom();
-        private final BlockPointedDripstone pointed = new BlockPointedDripstone();
+        private final BlockPointedDripstone dry = new BlockPointedDripstone(false);
+        private final BlockPointedDripstone wet = new BlockPointedDripstone(true);
 
         private Fixture() {
             for (V118OreMaterial material : V118OreMaterial.values()) {

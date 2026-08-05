@@ -26,7 +26,7 @@ public class SugarCaneFutureSupportTest {
         BlockCandle candle = new BlockCandle(CandleMechanics.Color.UNCOLORED);
         BlockAmethystGrowth amethyst = BlockAmethystGrowth.waterloggedCompanion(
                 "small_amethyst_bud", 3, 4, 1, false);
-        BlockPointedDripstone dripstone = new BlockPointedDripstone();
+        BlockPointedDripstone dripstone = new BlockPointedDripstone(true);
         LightningRodContent.LightningRodBlock rod =
                 new LightningRodContent.LightningRodBlock(true);
         CampfireContent.BlockCustom campfire = new CampfireContent.BlockCustom(false);
@@ -38,8 +38,7 @@ public class SugarCaneFutureSupportTest {
         assertTrue(CncFluidState.containsWater(candle.getDefaultState()
                 .withProperty(BlockCandle.WATERLOGGED, true)));
         assertTrue(CncFluidState.containsWater(amethyst.getDefaultState()));
-        assertFalse(CncFluidState.containsWater(dripstone.getDefaultState()));
-        assertFalse(CncFluidState.isKnownWaterContainer(dripstone.getDefaultState()));
+        assertTrue(CncFluidState.containsWater(dripstone.getDefaultState()));
         assertTrue(CncFluidState.containsWater(rod.getDefaultState()));
         assertTrue(CncFluidState.containsWater(campfire.getDefaultState()
                 .withProperty(CampfireContent.BlockCustom.WATERLOGGED, true)));
@@ -51,7 +50,7 @@ public class SugarCaneFutureSupportTest {
         assertFalse(CncFluidState.containsWater(dripleaf.getDefaultState()));
         assertFalse(CncFluidState.containsWater(candle.getDefaultState()));
         assertFalse(CncFluidState.containsWater(
-                new BlockPointedDripstone().getDefaultState()));
+                new BlockPointedDripstone(false).getDefaultState()));
         assertFalse(CncFluidState.containsWater(
                 new LightningRodContent.LightningRodBlock(false).getDefaultState()));
         assertFalse(CncFluidState.containsWater(campfire.getDefaultState()));

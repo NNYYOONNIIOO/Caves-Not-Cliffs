@@ -5,7 +5,6 @@ import net.celestiald.cavesnotcliffs.CavesNotCliffs;
 import net.celestiald.cavesnotcliffs.ElementsCavesNotCliffs;
 import net.celestiald.cavesnotcliffs.block.BlockPointedDripstone;
 import net.celestiald.cavesnotcliffs.block.BlockStalactite;
-import net.celestiald.cavesnotcliffs.compat.FluidloggedCompat;
 import net.celestiald.cavesnotcliffs.content.DripstoneSoundEvents;
 import net.celestiald.cavesnotcliffs.handler.DripstoneDamageHandler;
 import net.minecraft.block.Block;
@@ -108,8 +107,11 @@ public final class EntityFallingPointedDripstone extends ElementsCavesNotCliffs.
             boolean landedInWater = waterBeforeMove.contains(landing.toLong());
             IBlockState state = world.getBlockState(landing);
             if (state.getBlock() instanceof BlockPointedDripstone) {
-                if (landedInWater) {
-                    FluidloggedCompat.storeWater(world, landing, state, 3);
+                IBlockState storage = BlockPointedDripstone.landingState(state,
+                        landedInWater);
+                if (storage != state) {
+                    world.setBlockState(landing, storage, 3);
+                    state = storage;
                 }
                 EnumFacing direction = state.getValue(BlockPointedDripstone.TIP_DIRECTION);
                 if (BlockPointedDripstone.validPlacement(world, landing, direction)) {
@@ -151,8 +153,7 @@ public final class EntityFallingPointedDripstone extends ElementsCavesNotCliffs.
                 for (int y = minY; y <= maxY; y++) {
                     for (int z = minZ; z <= maxZ; z++) {
                         BlockPos candidate = new BlockPos(x, y, z);
-                        if (world.getBlockState(candidate).getMaterial() == Material.WATER
-                                || FluidloggedCompat.hasWater(world, candidate)) {
+                        if (world.getBlockState(candidate).getMaterial() == Material.WATER) {
                             water.add(candidate.toLong());
                         }
                     }

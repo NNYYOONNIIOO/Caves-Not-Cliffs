@@ -21,7 +21,6 @@ import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.stats.StatBase;
 import net.minecraft.stats.StatBasic;
-import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
@@ -152,12 +151,6 @@ public final class BlockStonecutter extends ElementsCavesNotCliffs.ModElement {
         @Override
         public EnumBlockRenderType getRenderType(IBlockState state) {
             return EnumBlockRenderType.MODEL;
-        }
-
-        @SideOnly(Side.CLIENT)
-        @Override
-        public BlockRenderLayer getBlockLayer() {
-            return BlockRenderLayer.CUTOUT;
         }
 
         @Override
