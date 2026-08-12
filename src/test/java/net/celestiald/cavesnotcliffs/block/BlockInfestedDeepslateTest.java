@@ -32,6 +32,14 @@ public class BlockInfestedDeepslateTest {
     }
 
     @Test
+    public void defaultStateIsUprightForWorldgen() {
+        BlockInfestedDeepslate.BlockCustom block =
+            new BlockInfestedDeepslate.BlockCustom();
+        assertEquals(net.minecraft.util.EnumFacing.Axis.Y,
+            block.getDefaultState().getValue(BlockRotatedPillar.AXIS));
+    }
+
+    @Test
     public void canonicalResourcesAndRegistryIdAreComplete() {
         assertEquals("cavesnotcliffs:infested_deepslate",
             CncRegistryIds.INFESTED_DEEPSLATE.toString());

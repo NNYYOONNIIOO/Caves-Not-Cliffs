@@ -46,12 +46,15 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import net.minecraftforge.registries.IForgeRegistry;
 import net.minecraftforge.registries.IForgeRegistryModifiable;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
 /** Public Java 1.18.2 plain-pumpkin peer for the carved 1.12 pumpkin split. */
 @Mod.EventBusSubscriber(modid = CavesNotCliffs.MODID)
 public final class PlainPumpkinContent {
+    private static final Logger LOGGER = LogManager.getLogger("CavesNotCliffs/PlainPumpkin");
     static final int CARVED_UPDATE_FLAGS = 11;
     static final int CARVE_SEED_COUNT = 4;
     static final int SHEARS_DAMAGE = 1;
@@ -144,11 +147,13 @@ public final class PlainPumpkinContent {
 
         VillagerRegistry.VillagerProfession profession = VillagerRegistry.getById(0);
         if (profession == null || !FARMER_ID.equals(profession.getRegistryName())) {
-            throw tradeFailure("the vanilla farmer profession at registry id 0");
+            warnTradeSkip("the vanilla farmer profession at registry id 0");
+            return;
         }
         VillagerRegistry.VillagerCareer career = profession.getCareer(0);
         if (career == null || !"farmer".equals(career.getName())) {
-            throw tradeFailure("the vanilla farmer career at index 0");
+            warnTradeSkip("the vanilla farmer career at index 0");
+            return;
         }
         List<EntityVillager.ITradeList> activeTrades = career.getTrades(1);
         installFarmerPumpkinTrade(plainPumpkin, source, activeTrades);
@@ -161,11 +166,15 @@ public final class PlainPumpkinContent {
                 || !CncRegistryIds.PUMPKIN.equals(plainPumpkin.getRegistryName())) {
             throw tradeFailure("the canonical plain-pumpkin item");
         }
+        // The checks below guard vanilla trade content that another mod may have
+        // changed; skip the rewrite instead of crashing the game.
         if (!(source instanceof EntityVillager.EmeraldForItems)) {
-            throw tradeFailure("an EmeraldForItems source at [0][0][1][0]");
+            warnTradeSkip("an EmeraldForItems source at [0][0][1][0]");
+            return;
         }
         if (!containsUniqueIdentity(activeTrades, source)) {
-            throw tradeFailure("the shared active farmer level-two trade");
+            warnTradeSkip("the shared active farmer level-two trade");
+            return;
         }
 
         EntityVillager.EmeraldForItems trade =
@@ -178,7 +187,8 @@ public final class PlainPumpkinContent {
                 || price == null
                 || ((Integer) price.getFirst()).intValue() != 8
                 || ((Integer) price.getSecond()).intValue() != 13) {
-            throw tradeFailure("the vanilla carved-pumpkin 8..13 source contract");
+            warnTradeSkip("the vanilla carved-pumpkin 8..13 source contract");
+            return;
         }
 
         // Null is a private marker that also prevents the obsolete 1.12 price RNG draw.
@@ -210,7 +220,10 @@ public final class PlainPumpkinContent {
         try {
             return trades[0][0][1][0];
         } catch (NullPointerException | ArrayIndexOutOfBoundsException failure) {
-            throw tradeFailure("the source trade path [0][0][1][0]");
+            LOGGER.warn("Caves Not Cliffs farmer pumpkin trade could not verify"
+                    + " the source trade path [0][0][1][0]; another mod may have"
+                    + " changed the vanilla trades", failure);
+            return null;
         }
     }
 
@@ -219,18 +232,22 @@ public final class PlainPumpkinContent {
             MerchantRecipeList recipes) {
         EntityVillager.ITradeList expected = farmerPumpkinSource(
                 EntityVillager.GET_TRADES_DONT_USE());
-        if (source != expected) {
+        if (expected == null || source != expected) {
             return;
         }
         EntityVillager.EmeraldForItems trade =
                 (EntityVillager.EmeraldForItems) expected;
         Item buyingItem = trade.buyingItem;
+        // Another mod may have touched the offer after installation; skip the
+        // fix-up instead of crashing mid-trade.
         if (trade.price != null || buyingItem == null
                 || !CncRegistryIds.PUMPKIN.equals(buyingItem.getRegistryName())) {
-            throw tradeFailure("the installed plain-pumpkin source marker");
+            warnTradeSkip("the installed plain-pumpkin source marker");
+            return;
         }
         if (recipes == null || recipes.isEmpty()) {
-            throw tradeFailure("the newly appended pumpkin offer");
+            warnTradeSkip("the newly appended pumpkin offer");
+            return;
         }
         MerchantRecipe recipe = recipes.get(recipes.size() - 1);
         ItemStack buy = recipe.getItemToBuy();
@@ -243,11 +260,18 @@ public final class PlainPumpkinContent {
                 || sell.getCount() != 1
                 || recipe.getToolUses() != 0
                 || recipe.getMaxTradeUses() != VANILLA_PLACEHOLDER_MAX_USES) {
-            throw tradeFailure("the vanilla EmeraldForItems placeholder offer");
+            warnTradeSkip("the vanilla EmeraldForItems placeholder offer");
+            return;
         }
         buy.setCount(FARMER_PUMPKIN_COST);
         recipe.increaseMaxTradeUses(
                 FARMER_PUMPKIN_MAX_USES - VANILLA_PLACEHOLDER_MAX_USES);
+    }
+
+    private static void warnTradeSkip(String point) {
+        LOGGER.warn("Caves Not Cliffs farmer pumpkin trade could not verify {};"
+                + " leaving villager trades untouched (another mod may have"
+                + " changed them)", point);
     }
 
     private static IllegalStateException tradeFailure(String point) {
@@ -261,13 +285,15 @@ public final class PlainPumpkinContent {
             throw new IllegalStateException(
                     "Recipe registry was locked before canonical pumpkin replacement");
         }
-        if (!registry.containsKey(PUMPKIN_SEEDS_RECIPE_ID)
-                || !registry.containsKey(PUMPKIN_PIE_RECIPE_ID)) {
-            throw new IllegalStateException(
-                    "Canonical vanilla pumpkin recipes were missing during replacement");
-        }
         // Forge loads JSON recipes before firing this registry event, so keep the
         // vanilla recipe-book IDs while replacing only their ingredient contracts.
+        // Another mod (e.g. Better With Mods) may have removed the vanilla recipes
+        // already; that is not fatal, so only remove what is actually present.
+        if (!registry.containsKey(PUMPKIN_SEEDS_RECIPE_ID)
+                || !registry.containsKey(PUMPKIN_PIE_RECIPE_ID)) {
+            LOGGER.warn("Canonical vanilla pumpkin recipes are missing (removed by"
+                    + " another mod?); installing replacements without removal");
+        }
         registry.remove(PUMPKIN_SEEDS_RECIPE_ID);
         registry.remove(PUMPKIN_PIE_RECIPE_ID);
         registry.register(pumpkinSeedsRecipe(pumpkin));

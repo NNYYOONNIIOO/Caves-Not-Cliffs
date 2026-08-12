@@ -48,6 +48,10 @@ public class BlockUnnamedStone extends ElementsCavesNotCliffs.ModElement {
             setHardness(3.0f);
             setResistance(CncBlockProperties.legacyResistance(6.0F));
             setHarvestLevel("pickaxe", 0);
+            // BlockRotatedPillar leaves the axis property at its first enum value (X);
+            // worldgen places getDefaultState(), so default to upright like 1.18 deepslate.
+            setDefaultState(blockState.getBaseState()
+                    .withProperty(AXIS, net.minecraft.util.EnumFacing.Axis.Y));
         }
 
         @Override

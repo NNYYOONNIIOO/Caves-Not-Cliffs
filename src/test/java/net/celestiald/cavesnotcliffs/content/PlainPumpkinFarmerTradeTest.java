@@ -23,7 +23,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 public class PlainPumpkinFarmerTradeTest {
     @BeforeClass
@@ -112,31 +111,27 @@ public class PlainPumpkinFarmerTradeTest {
     }
 
     @Test
-    public void installRejectsDriftedSourceAndActiveAnchors() {
+    public void installSkipsDriftedSourceAndActiveAnchors() {
         ItemBlock plain = plainPumpkin();
         EntityVillager.EmeraldForItems pumpkin = vanillaPumpkinTrade();
         EntityVillager.EmeraldForItems different = vanillaPumpkinTrade();
-        assertInstallFails(plain, pumpkin,
-                Collections.<EntityVillager.ITradeList>singletonList(different),
-                "shared active");
-        assertInstallFails(plain, pumpkin,
-                Arrays.<EntityVillager.ITradeList>asList(pumpkin, pumpkin),
-                "shared active");
+        assertInstallSkips(plain, pumpkin,
+                Collections.<EntityVillager.ITradeList>singletonList(different));
+        assertInstallSkips(plain, pumpkin,
+                Arrays.<EntityVillager.ITradeList>asList(pumpkin, pumpkin));
 
         EntityVillager.EmeraldForItems melon = new EntityVillager.EmeraldForItems(
                 Item.getItemFromBlock(Blocks.MELON_BLOCK),
                 new EntityVillager.PriceInfo(8, 13));
-        assertInstallFails(plain, melon,
-                Collections.<EntityVillager.ITradeList>singletonList(melon),
-                "carved-pumpkin");
+        assertInstallSkips(plain, melon,
+                Collections.<EntityVillager.ITradeList>singletonList(melon));
 
         EntityVillager.EmeraldForItems changedPrice =
                 new EntityVillager.EmeraldForItems(
                         Item.getItemFromBlock(Blocks.PUMPKIN),
                         new EntityVillager.PriceInfo(7, 13));
-        assertInstallFails(plain, changedPrice,
-                Collections.<EntityVillager.ITradeList>singletonList(changedPrice),
-                "8..13");
+        assertInstallSkips(plain, changedPrice,
+                Collections.<EntityVillager.ITradeList>singletonList(changedPrice));
     }
 
     @Test
@@ -171,7 +166,7 @@ public class PlainPumpkinFarmerTradeTest {
     }
 
     @Test
-    public void markedTradeWithChangedPlaceholderFailsClearly() {
+    public void markedTradeWithChangedPlaceholderIsLeftUntouched() {
         ItemBlock plain = plainPumpkin();
         EntityVillager.EmeraldForItems source =
                 (EntityVillager.EmeraldForItems)
@@ -182,13 +177,10 @@ public class PlainPumpkinFarmerTradeTest {
             PlainPumpkinContent.installFarmerPumpkinTrade(plain);
             MerchantRecipeList recipes = new MerchantRecipeList();
             recipes.add(new MerchantRecipe(new ItemStack(plain, 2), Items.EMERALD));
-            try {
-                PlainPumpkinContent.finishFarmerPumpkinTrade(source, recipes);
-                fail("A changed vanilla placeholder must not be silently rewritten");
-            } catch (IllegalStateException expected) {
-                assertTrue(expected.getMessage().contains("farmer pumpkin trade"));
-                assertTrue(expected.getMessage().contains("placeholder offer"));
-            }
+            PlainPumpkinContent.finishFarmerPumpkinTrade(source, recipes);
+            MerchantRecipe recipe = recipes.get(0);
+            assertEquals(2, recipe.getItemToBuy().getCount());
+            assertEquals(7, recipe.getMaxTradeUses());
         } finally {
             source.buyingItem = originalItem;
             source.price = originalPrice;
@@ -205,16 +197,17 @@ public class PlainPumpkinFarmerTradeTest {
                 new EntityVillager.PriceInfo(8, 13));
     }
 
-    private static void assertInstallFails(Item plain,
+    private static void assertInstallSkips(ItemBlock plain,
             EntityVillager.ITradeList source,
-            List<EntityVillager.ITradeList> active, String point) {
-        try {
-            PlainPumpkinContent.installFarmerPumpkinTrade(plain, source, active);
-            fail("A drifted farmer trade anchor must fail clearly");
-        } catch (IllegalStateException expected) {
-            assertTrue(expected.getMessage().contains("farmer pumpkin trade"));
-            assertTrue(expected.getMessage().contains(point));
-        }
+            List<EntityVillager.ITradeList> active) {
+        EntityVillager.EmeraldForItems trade =
+                (EntityVillager.EmeraldForItems) source;
+        Item buyingItem = trade.buyingItem;
+        EntityVillager.PriceInfo price = trade.price;
+        PlainPumpkinContent.installFarmerPumpkinTrade(plain, source, active);
+        assertSame("A drifted farmer trade anchor must be skipped, not rewritten",
+                buyingItem, trade.buyingItem);
+        assertSame(price, trade.price);
     }
 
     private static final class CountingRandom extends Random {

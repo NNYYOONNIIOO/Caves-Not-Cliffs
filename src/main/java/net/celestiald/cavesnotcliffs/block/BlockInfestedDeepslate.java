@@ -60,6 +60,10 @@ public final class BlockInfestedDeepslate extends ElementsCavesNotCliffs.ModElem
             setHardness(1.5F);
             setResistance(CncBlockProperties.legacyResistance(0.75F));
             setHarvestLevel("pickaxe", 0);
+            // BlockRotatedPillar leaves the axis property at its first enum value (X);
+            // worldgen places getDefaultState(), so default to upright like 1.18 deepslate.
+            setDefaultState(blockState.getBaseState()
+                .withProperty(AXIS, net.minecraft.util.EnumFacing.Axis.Y));
         }
 
         @Override
