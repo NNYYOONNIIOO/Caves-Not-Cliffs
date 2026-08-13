@@ -33,6 +33,7 @@ public final class V118BiomeProvider extends BiomeProvider {
     private final V118ClimateSampler climateSampler;
     private final V118BiomeManager biomeManager;
     private final V118BiomeMapper biomes;
+    private final ModdedBiomeOverlay overlay;
 
     public V118BiomeProvider(long seed, V118NoiseRouterData.Profile profile) {
         this(seed, profile, V118BiomeMapper.fromRegisteredBiomes());
@@ -40,11 +41,19 @@ public final class V118BiomeProvider extends BiomeProvider {
 
     /** Test seam: resolves the projection table without the live mod biome registry. */
     V118BiomeProvider(long seed, V118NoiseRouterData.Profile profile, V118BiomeMapper biomes) {
+        this(seed, profile, biomes, ModdedBiomeOverlay.disabled());
+    }
+
+    V118BiomeProvider(long seed, V118NoiseRouterData.Profile profile, V118BiomeMapper biomes,
+            ModdedBiomeOverlay overlay) {
         if (profile == null) {
             throw new NullPointerException("profile");
         }
         if (biomes == null) {
             throw new NullPointerException("biomes");
+        }
+        if (overlay == null) {
+            throw new NullPointerException("overlay");
         }
         V118NoiseSettings settings = V118NoiseSettings.overworld(profile.amplified());
         V118NoiseRouter router = V118NoiseRouterData.create(seed, profile);
@@ -52,6 +61,7 @@ public final class V118BiomeProvider extends BiomeProvider {
         climateSampler = new V118ClimateSampler(router, settings, biomeTable);
         biomeManager = new V118BiomeManager(climateSampler::resolveQuart, seed);
         this.biomes = biomes;
+        this.overlay = overlay;
     }
 
     /** Generation-scale grid: coordinates arrive in quart (1:4) units, no Voronoi zoom. */
@@ -66,7 +76,7 @@ public final class V118BiomeProvider extends BiomeProvider {
                     x + localX, SURFACE_SAMPLE_QUART_Y, z + localZ));
             }
         }
-        return reuse;
+        return overlay.overlayForGeneration(reuse, x, z, width, height);
     }
 
     /** Block-scale grid: applies the same Voronoi zoom the chunk biome array is written with. */
@@ -82,11 +92,13 @@ public final class V118BiomeProvider extends BiomeProvider {
                     x + localX, SURFACE_SAMPLE_Y, z + localZ));
             }
         }
-        return reuse;
+        return overlay.overlayBlock(reuse, x, z, width, length);
     }
 
     @Override
     public boolean areBiomesViable(int x, int z, int radius, List<Biome> allowed) {
+        // Deliberately climate-only: 1.18 structure placement consults the 1.18 layout,
+        // not the modded-biome overlay sampled from the vanilla chain.
         int minQuartX = x - radius >> 2;
         int minQuartZ = z - radius >> 2;
         int maxQuartX = x + radius >> 2;
@@ -106,6 +118,18 @@ public final class V118BiomeProvider extends BiomeProvider {
     @Override
     public BlockPos findBiomePosition(int x, int z, int range, List<Biome> biomeList,
             Random random) {
+        // Biome search tools (Nature's Compass) must locate biomes that only exist as
+        // overlay patches, e.g. Thaumcraft's Magical Forest. The overlay is sampled at
+        // block scale here — the same scale the chunk biome array is written with — so a
+        // reported position actually holds the biome. Row-by-row so a huge search radius
+        // never materializes the whole grid at once.
+        boolean needsOverlay = false;
+        for (Biome biome : biomeList) {
+            if (ModdedBiomeOverlay.isModded(biome)) {
+                needsOverlay = true;
+                break;
+            }
+        }
         int minQuartX = x - range >> 2;
         int minQuartZ = z - range >> 2;
         int maxQuartX = x + range >> 2;
@@ -114,16 +138,26 @@ public final class V118BiomeProvider extends BiomeProvider {
         int height = maxQuartZ - minQuartZ + 1;
         BlockPos found = null;
         int matches = 0;
-        for (int index = 0; index < width * height; ++index) {
-            int quartX = minQuartX + index % width;
-            int quartZ = minQuartZ + index / width;
-            Biome biome = biomes.biomeFor(climateSampler.resolveQuart(
-                quartX, SURFACE_SAMPLE_QUART_Y, quartZ));
-            if (biomeList.contains(biome)) {
-                if (found == null || random.nextInt(matches + 1) == 0) {
-                    found = new BlockPos(quartX << 2, 0, quartZ << 2);
+        for (int row = 0; row < height; ++row) {
+            int quartZ = minQuartZ + row;
+            Biome[] moddedRow = needsOverlay
+                ? overlay.moddedBlockBiomes(minQuartX << 2, quartZ << 2, width << 2, 1)
+                : null;
+            for (int localX = 0; localX < width; ++localX) {
+                Biome biome = null;
+                if (moddedRow != null && localX << 2 < moddedRow.length) {
+                    biome = moddedRow[localX << 2];
                 }
-                ++matches;
+                if (biome == null) {
+                    biome = biomes.biomeFor(climateSampler.resolveQuart(
+                        minQuartX + localX, SURFACE_SAMPLE_QUART_Y, quartZ));
+                }
+                if (biomeList.contains(biome)) {
+                    if (found == null || random.nextInt(matches + 1) == 0) {
+                        found = new BlockPos((minQuartX + localX) << 2, 0, quartZ << 2);
+                    }
+                    ++matches;
+                }
             }
         }
         return found;

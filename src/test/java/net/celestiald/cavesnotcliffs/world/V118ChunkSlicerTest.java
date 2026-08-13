@@ -161,6 +161,75 @@ public class V118ChunkSlicerTest {
         }
     }
 
+    @Test
+    public void moddedBiomeOverlayClaimsCellsAndSkipsUnresolvableBiomeIds() {
+        Biome magicalForest = registerModdedBiome(240, "thaumcraft", "magical_forest");
+        // Not registered: an id lookup fails, as it does for ids beyond the legacy byte
+        // range without extended biome storage — the cell must keep the 1.18 projection.
+        Biome unresolvable = new Biome(new Biome.BiomeProperties("Wide Biome")) {
+        };
+        unresolvable.setRegistryName("somemod", "wide_biome");
+        Biome[] vanillaGrid = new Biome[TerrainColumn.SURFACE_BIOME_COUNT];
+        Arrays.fill(vanillaGrid, Biomes.FOREST);
+        vanillaGrid[0] = magicalForest;
+        vanillaGrid[1] = unresolvable;
+        ModdedBiomeOverlay overlay = ModdedBiomeOverlay.of(new ModdedBiomeOverlay.Sampler() {
+            @Override
+            public Biome[] generationBiomes(int quartX, int quartZ, int width, int height) {
+                return new Biome[width * height];
+            }
+
+            @Override
+            public Biome[] blockBiomes(int blockX, int blockZ, int width, int length) {
+                return vanillaGrid;
+            }
+        });
+        V118ChunkSlicer slicer = new V118ChunkSlicer(blockMapper(), biomeMapper(), overlay);
+
+        int plainsId = Biome.getIdForBiome(Biomes.PLAINS);
+        int[] biomeIds = new int[TerrainColumn.SURFACE_BIOME_COUNT];
+        Arrays.fill(biomeIds, plainsId);
+        slicer.applyModdedBiomeOverlay(biomeIds, 0, 0);
+
+        assertEquals(Biome.getIdForBiome(magicalForest), biomeIds[0]);
+        // The unresolvable biome id cannot be written, so the cell keeps the projection
+        // instead of crashing the legacy byte-array path.
+        assertEquals(plainsId, biomeIds[1]);
+        // Plain vanilla cells are never claimed by the overlay.
+        assertEquals(plainsId, biomeIds[2]);
+    }
+
+    private static Biome registerModdedBiome(int id, String domain, String path) {
+        Biome biome = new Biome(new Biome.BiomeProperties(path)) {
+        };
+        net.minecraft.util.ResourceLocation name =
+            new net.minecraft.util.ResourceLocation(domain, path);
+        try {
+            // The test JVM sees the locked Forge wrapper; thaw it just for the fixture.
+            java.lang.reflect.Field lockedField =
+                Biome.REGISTRY.getClass().getDeclaredField("locked");
+            lockedField.setAccessible(true);
+            java.lang.reflect.Field delegateField =
+                Biome.REGISTRY.getClass().getDeclaredField("delegate");
+            delegateField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            net.minecraftforge.registries.ForgeRegistry<Biome> delegate =
+                (net.minecraftforge.registries.ForgeRegistry<Biome>)
+                    delegateField.get(Biome.REGISTRY);
+            delegate.unfreeze();
+            lockedField.setBoolean(Biome.REGISTRY, false);
+            try {
+                Biome.REGISTRY.register(id, name, biome);
+            } finally {
+                lockedField.setBoolean(Biome.REGISTRY, true);
+                delegate.freeze();
+            }
+            return biome;
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError(failure);
+        }
+    }
+
     private static V118BlockStateMapper blockMapper() {
         return new V118BlockStateMapper(
             Blocks.COAL_BLOCK.getDefaultState(), Blocks.BRICK_BLOCK.getDefaultState(),

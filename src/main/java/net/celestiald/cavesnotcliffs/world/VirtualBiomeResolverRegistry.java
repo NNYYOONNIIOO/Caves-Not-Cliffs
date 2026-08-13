@@ -53,11 +53,29 @@ public final class VirtualBiomeResolverRegistry {
         V118ChunkGenerator server = world != null && !world.isRemote
                 ? V118ChunkGenerator.forWorld(world) : null;
         if (server != null && V118ChunkGenerator.hasVirtualBiomeY(y)) {
-            return server.getRegisteredVirtualBiome(x, y, z);
+            return resolveWithOverlay(server.getVirtualBiome(x, y, z), base,
+                    server.getRegisteredVirtualBiome(x, y, z));
         }
         Resolver resolver = resolverFor(world);
         return resolver == null || y < TerrainColumn.MIN_Y || y > TerrainColumn.MAX_Y
-                ? base : resolver.resolve(x, y, z);
+                ? base : resolver.resolve(x, y, z, base);
+    }
+
+    /**
+     * The chunk biome array carries modded overlay biomes (e.g. Thaumcraft's Magical
+     * Forest) which the 1.18 climate map cannot express. Where the virtual biome is an
+     * ordinary surface biome, the overlay claim wins; underground cave biomes (lush /
+     * dripstone caves) still override the 2D array as designed.
+     */
+    static Biome resolveWithOverlay(V118Biome virtual, Biome base, Biome projected) {
+        if (ModdedBiomeOverlay.isModded(base) && isSurfaceVirtualBiome(virtual)) {
+            return base;
+        }
+        return projected;
+    }
+
+    private static boolean isSurfaceVirtualBiome(V118Biome biome) {
+        return biome != V118Biome.LUSH_CAVES && biome != V118Biome.DRIPSTONE_CAVES;
     }
 
     private static Resolver resolverFor(World world) {
@@ -98,7 +116,13 @@ public final class VirtualBiomeResolverRegistry {
             this.biomes = biomes;
         }
 
-        private synchronized Biome resolve(int x, int y, int z) {
+        private synchronized Biome resolve(int x, int y, int z, Biome base) {
+            // Overlay claims depend on the base biome, not just the coordinates, so
+            // they neither read nor write the coordinate cache.
+            if (ModdedBiomeOverlay.isModded(base)) {
+                V118Biome virtual = columns.biomeAt(x, y, z);
+                return resolveWithOverlay(virtual, base, biomes.biomeFor(virtual));
+            }
             int cacheIndex = cacheIndex(x, y, z);
             Biome cached = cachedBiomes[cacheIndex];
             if (cached != null && cachedX[cacheIndex] == x && cachedY[cacheIndex] == y

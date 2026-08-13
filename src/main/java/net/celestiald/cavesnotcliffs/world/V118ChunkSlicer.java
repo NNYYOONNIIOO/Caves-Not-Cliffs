@@ -8,25 +8,39 @@ import net.minecraft.world.biome.Biome;
 import net.minecraft.world.chunk.ChunkPrimer;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /** Copies one immutable 16x384x16 terrain column into signed-Y chunk sections. */
 final class V118ChunkSlicer {
+    private static final Logger LOGGER = LogManager.getLogger("CavesNotCliffs/ModdedBiomes");
     private static final int CUBE_SIZE = 16;
 
     private final V118BlockStateMapper blockStates;
     private final V118BiomeMapper biomes;
+    private final ModdedBiomeOverlay overlay;
     private final char[] materialIds = new char[TerrainColumn.BLOCKS_PER_CUBE];
     private final IBlockState[] sectionStates = new IBlockState[TerrainColumn.BLOCKS_PER_CUBE];
+    private boolean warnedAboutWideModdedBiome;
 
     V118ChunkSlicer(V118BlockStateMapper blockStates, V118BiomeMapper biomes) {
+        this(blockStates, biomes, ModdedBiomeOverlay.disabled());
+    }
+
+    V118ChunkSlicer(V118BlockStateMapper blockStates, V118BiomeMapper biomes,
+            ModdedBiomeOverlay overlay) {
         if (blockStates == null) {
             throw new NullPointerException("blockStates");
         }
         if (biomes == null) {
             throw new NullPointerException("biomes");
         }
+        if (overlay == null) {
+            throw new NullPointerException("overlay");
+        }
         this.blockStates = blockStates;
         this.biomes = biomes;
+        this.overlay = overlay;
     }
 
     void slice(TerrainColumn column, int sectionY, Chunk chunk, boolean skylight) {
@@ -133,6 +147,7 @@ final class V118ChunkSlicer {
             throw new NullPointerException("chunk");
         }
         int[] biomeIds = projectedSurfaceBiomeIds(column);
+        applyModdedBiomeOverlay(biomeIds, chunk.x, chunk.z);
         if (ExtendedBiomeStorageCompat.replaceSurfaceBiomes(chunk, biomeIds)) {
             return;
         }
@@ -148,6 +163,45 @@ final class V118ChunkSlicer {
                     + "chunk biome array: " + biomeId);
             }
             legacyBiomeArray[index] = (byte) biomeId;
+        }
+    }
+
+    /**
+     * Lets modded biomes from the vanilla chain (e.g. Thaumcraft's Magical Forest via
+     * BiomeManager) claim the surface plane so biome-driven mod content — tree worldgen,
+     * grass tints, fog — works in native-profile worlds.
+     */
+    void applyModdedBiomeOverlay(int[] biomeIds, int chunkX, int chunkZ) {
+        if (!overlay.isEnabled()) {
+            return;
+        }
+        Biome[] modded = overlay.moddedBlockBiomes(
+            chunkX << 4, chunkZ << 4, TerrainColumn.WIDTH, TerrainColumn.WIDTH);
+        if (modded == null) {
+            return;
+        }
+        boolean extendedStorage = ExtendedBiomeStorageCompat.isAvailable();
+        for (int index = 0; index < biomeIds.length && index < modded.length; ++index) {
+            Biome biome = modded[index];
+            if (biome == null) {
+                continue;
+            }
+            int biomeId = Biome.getIdForBiome(biome);
+            if (biomeId < 0) {
+                continue;
+            }
+            if (biomeId > 255 && !extendedStorage) {
+                // The legacy byte array cannot hold the id and RoughlyEnoughIDs is absent;
+                // keep the 1.18 projection for this cell instead of crashing below.
+                if (!warnedAboutWideModdedBiome) {
+                    LOGGER.warn("Modded biome {} has id {} which needs extended biome storage"
+                            + " (e.g. RoughlyEnoughIDs); keeping the 1.18 projection there",
+                            biome.getRegistryName(), biomeId);
+                    warnedAboutWideModdedBiome = true;
+                }
+                continue;
+            }
+            biomeIds[index] = biomeId;
         }
     }
 

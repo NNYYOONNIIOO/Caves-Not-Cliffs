@@ -17,18 +17,22 @@ import java.util.Random;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class V118BiomeProviderTest {
     private static final long SEED = 20240801L;
-    private static final List<Biome> VILLAGE_BIOMES =
-        Arrays.asList(Biomes.PLAINS, Biomes.DESERT, Biomes.SAVANNA, Biomes.TAIGA);
-    private static final List<Biome> OCEAN_BIOMES =
-        Arrays.asList(Biomes.OCEAN, Biomes.DEEP_OCEAN);
+    // Resolved lazily after Bootstrap: touching Biomes.* during class init dies with
+    // "Accessed Biomes before Bootstrap" whenever this class loads first in the test JVM.
+    private static List<Biome> villageBiomes;
+    private static List<Biome> oceanBiomes;
 
     @BeforeClass
     public static void bootstrapVanillaRegistries() {
         Bootstrap.register();
+        villageBiomes = Arrays.asList(Biomes.PLAINS, Biomes.DESERT, Biomes.SAVANNA,
+            Biomes.TAIGA);
+        oceanBiomes = Arrays.asList(Biomes.OCEAN, Biomes.DEEP_OCEAN);
     }
 
     @Test
@@ -42,12 +46,12 @@ public class V118BiomeProviderTest {
                 for (int x = -radius; x <= radius; x += 64) {
                     BlockPos pos = new BlockPos(x, 64, z);
                     Biome biome = provider.getBiome(pos);
-                    if (oceanAnchor == null && OCEAN_BIOMES.contains(biome)
-                            && provider.areBiomesViable(x, z, 0, OCEAN_BIOMES)) {
+                    if (oceanAnchor == null && oceanBiomes.contains(biome)
+                            && provider.areBiomesViable(x, z, 0, oceanBiomes)) {
                         oceanAnchor = pos;
                     }
                     if (plainsAnchor == null && biome == Biomes.PLAINS
-                            && provider.areBiomesViable(x, z, 0, VILLAGE_BIOMES)) {
+                            && provider.areBiomesViable(x, z, 0, villageBiomes)) {
                         plainsAnchor = pos;
                     }
                 }
@@ -58,11 +62,11 @@ public class V118BiomeProviderTest {
         // The bug report: villages passed their biome check over the 1.18 ocean because the
         // check sampled the unrelated vanilla GenLayer layout. Both checks must agree now.
         assertFalse(provider.areBiomesViable(oceanAnchor.getX(), oceanAnchor.getZ(), 0,
-            VILLAGE_BIOMES));
+            villageBiomes));
         assertFalse(provider.areBiomesViable(oceanAnchor.getX(), oceanAnchor.getZ(), 32,
-            VILLAGE_BIOMES));
+            villageBiomes));
         assertTrue(provider.areBiomesViable(plainsAnchor.getX(), plainsAnchor.getZ(), 0,
-            VILLAGE_BIOMES));
+            villageBiomes));
     }
 
     @Test
@@ -92,14 +96,129 @@ public class V118BiomeProviderTest {
             found.getZ())));
     }
 
+    @Test
+    public void moddedBiomeOverlayWinsOverTheClimateProjection() {
+        Biome magicalForest = new Biome(new Biome.BiomeProperties("Magical Forest")) {
+        };
+        magicalForest.setRegistryName("thaumcraft", "magical_forest");
+        ModdedBiomeOverlay overlay = ModdedBiomeOverlay.of(new ModdedBiomeOverlay.Sampler() {
+            @Override
+            public Biome[] generationBiomes(int quartX, int quartZ, int width, int height) {
+                Biome[] grid = new Biome[width * height];
+                Arrays.fill(grid, magicalForest);
+                grid[0] = Biomes.FOREST;
+                return grid;
+            }
+
+            @Override
+            public Biome[] blockBiomes(int blockX, int blockZ, int width, int length) {
+                Biome[] grid = new Biome[width * length];
+                Arrays.fill(grid, magicalForest);
+                grid[0] = Biomes.FOREST;
+                return grid;
+            }
+        });
+        V118BiomeProvider provider = new V118BiomeProvider(SEED,
+            V118NoiseRouterData.Profile.DEFAULT, mapper(), overlay);
+
+        // Vanilla chain cells are never claimed: the first cell keeps the 1.18 projection.
+        V118BiomeProvider plain = provider(SEED);
+        Biome[] generation = provider.getBiomesForGeneration(null, 0, 0, 4, 4);
+        assertEquals(plain.getBiomesForGeneration(null, 0, 0, 4, 4)[0], generation[0]);
+        for (int index = 1; index < generation.length; ++index) {
+            assertEquals(magicalForest, generation[index]);
+        }
+
+        Biome[] blocks = provider.getBiomes(null, 16, 16, 8, 8, true);
+        assertEquals(plain.getBiomes(null, 16, 16, 8, 8, true)[0], blocks[0]);
+        for (int index = 1; index < blocks.length; ++index) {
+            assertEquals(magicalForest, blocks[index]);
+        }
+    }
+
+    @Test
+    public void vanillaOverlaySamplerLeavesTheClimateProjectionAlone() {
+        ModdedBiomeOverlay overlay = ModdedBiomeOverlay.of(new ModdedBiomeOverlay.Sampler() {
+            @Override
+            public Biome[] generationBiomes(int quartX, int quartZ, int width, int height) {
+                Biome[] grid = new Biome[width * height];
+                Arrays.fill(grid, Biomes.FOREST);
+                return grid;
+            }
+
+            @Override
+            public Biome[] blockBiomes(int blockX, int blockZ, int width, int length) {
+                Biome[] grid = new Biome[width * length];
+                Arrays.fill(grid, Biomes.FOREST);
+                return grid;
+            }
+        });
+        V118BiomeProvider overlaid = new V118BiomeProvider(SEED,
+            V118NoiseRouterData.Profile.DEFAULT, mapper(), overlay);
+        V118BiomeProvider plain = provider(SEED);
+        for (int index = 0; index < 16; ++index) {
+            int x = -512 + index * 67;
+            int z = 256 - index * 41;
+            assertEquals(plain.getBiome(new BlockPos(x, 64, z)),
+                overlaid.getBiome(new BlockPos(x, 64, z)));
+        }
+    }
+
+    @Test
+    public void findBiomePositionLocatesModdedOverlayBiomes() {
+        final Biome magicalForest = new Biome(new Biome.BiomeProperties("Magical Forest")) {
+        };
+        magicalForest.setRegistryName("thaumcraft", "magical_forest");
+        final int targetQuartX = 20;
+        final int targetQuartZ = -12;
+        final int targetBlockX = targetQuartX << 2;
+        final int targetBlockZ = targetQuartZ << 2;
+        ModdedBiomeOverlay overlay = ModdedBiomeOverlay.of(new ModdedBiomeOverlay.Sampler() {
+            @Override
+            public Biome[] generationBiomes(int quartX, int quartZ, int width, int height) {
+                Biome[] grid = new Biome[width * height];
+                Arrays.fill(grid, Biomes.FOREST);
+                return grid;
+            }
+
+            @Override
+            public Biome[] blockBiomes(int blockX, int blockZ, int width, int length) {
+                Biome[] grid = new Biome[width * length];
+                Arrays.fill(grid, Biomes.FOREST);
+                if (blockZ <= targetBlockZ && targetBlockZ < blockZ + length
+                        && blockX <= targetBlockX && targetBlockX < blockX + width) {
+                    grid[(targetBlockZ - blockZ) * width + (targetBlockX - blockX)] =
+                        magicalForest;
+                }
+                return grid;
+            }
+        });
+        V118BiomeProvider provider = new V118BiomeProvider(SEED,
+            V118NoiseRouterData.Profile.DEFAULT, mapper(), overlay);
+
+        BlockPos found = provider.findBiomePosition(0, 0, 256,
+            Collections.singletonList(magicalForest), new Random(0L));
+        assertNotNull("the overlay biome must be locatable by biome search tools", found);
+        assertEquals(targetQuartX << 2, found.getX());
+        assertEquals(targetQuartZ << 2, found.getZ());
+
+        // Without the overlay the modded biome does not exist in the climate projection.
+        assertNull(provider(SEED).findBiomePosition(0, 0, 256,
+            Collections.singletonList(magicalForest), new Random(0L)));
+    }
+
     private static V118BiomeProvider provider(long seed) {
         return provider(seed, V118NoiseRouterData.Profile.DEFAULT);
     }
 
     private static V118BiomeProvider provider(long seed, V118NoiseRouterData.Profile profile) {
-        return new V118BiomeProvider(seed, profile, V118BiomeMapper.fromResolver(location -> {
+        return new V118BiomeProvider(seed, profile, mapper());
+    }
+
+    private static V118BiomeMapper mapper() {
+        return V118BiomeMapper.fromResolver(location -> {
             Biome mountain = MountainBiomeContent.biomeFor(location);
             return mountain == null ? Biome.REGISTRY.getObject(location) : mountain;
-        }));
+        });
     }
 }

@@ -27,8 +27,11 @@ import java.util.List;
 import java.util.Collections;
 import java.lang.ref.WeakReference;
 import java.util.Map;
+import java.util.Random;
 import java.util.WeakHashMap;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Native schema-2 finite-column generator for the Java 1.18.2 density columns.
@@ -39,6 +42,7 @@ import java.util.Set;
  * features run through isolated decoration bridges after structure population.</p>
  */
 public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopulationGenerator {
+    private static final Logger LOGGER = LogManager.getLogger("CavesNotCliffs/ModdedBiomes");
     private static final int CUBE_SIZE = 16;
     private static final Map<World, WeakReference<V118ChunkGenerator>> ACTIVE_GENERATORS =
         new WeakHashMap<World, WeakReference<V118ChunkGenerator>>();
@@ -50,6 +54,7 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
     private final V118TerrainColumnGenerator columns;
     private final V118BlockStateMapper blockStates;
     private final V118BiomeMapper biomes;
+    private final ModdedBiomeOverlay biomeOverlay;
     private final V118ChunkSlicer slicer;
     private final V118GeodeWorldBridge geodes;
     private final V118DripstoneWorldBridge dripstones;
@@ -65,18 +70,27 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
     private int lastGeneratedX;
     private int lastGeneratedZ;
     private boolean generatedOnce;
+    private boolean moddedDecorationFailed;
 
     V118ChunkGenerator(World world, TerrainProfile terrainProfile,
-            IChunkGenerator structureGenerator) {
+            IChunkGenerator structureGenerator, ModdedBiomeOverlay overlay) {
         this(world, terrainProfile, structureGenerator,
             new V118TerrainColumnGenerator(world.getSeed(), nativeProfileFor(terrainProfile)),
             V118BlockStateMapper.fromRegisteredBlocks(),
-            V118BiomeMapper.fromRegisteredBiomes());
+            V118BiomeMapper.fromRegisteredBiomes(), overlay);
     }
 
     V118ChunkGenerator(World world, TerrainProfile terrainProfile,
             IChunkGenerator structureGenerator, V118TerrainColumnGenerator columns,
             V118BlockStateMapper blockStates, V118BiomeMapper biomes) {
+        this(world, terrainProfile, structureGenerator, columns, blockStates, biomes,
+            ModdedBiomeOverlay.disabled());
+    }
+
+    V118ChunkGenerator(World world, TerrainProfile terrainProfile,
+            IChunkGenerator structureGenerator, V118TerrainColumnGenerator columns,
+            V118BlockStateMapper blockStates, V118BiomeMapper biomes,
+            ModdedBiomeOverlay overlay) {
         if (world == null) {
             throw new NullPointerException("world");
         }
@@ -85,6 +99,9 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
         }
         if (structureGenerator == null) {
             throw new NullPointerException("structureGenerator");
+        }
+        if (overlay == null) {
+            throw new NullPointerException("overlay");
         }
         ExtendedChunkAPI.requireRange("Caves Not Cliffs", TerrainColumn.MIN_Y,
                 TerrainColumn.MAX_Y_EXCLUSIVE);
@@ -95,7 +112,8 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
         this.columns = columns;
         this.blockStates = blockStates;
         this.biomes = biomes;
-        slicer = new V118ChunkSlicer(blockStates, biomes);
+        this.biomeOverlay = overlay;
+        slicer = new V118ChunkSlicer(blockStates, biomes, overlay);
         geodes = new V118GeodeWorldBridge(world,
             V118GeodeBlockMapper.fromRegisteredBlocks());
         V118OreBlockMapper oreBlocks = V118OreBlockMapper.fromRegisteredBlocks();
@@ -340,6 +358,10 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
                 PopulateChunkEvent.Populate.EventType.ICE)) {
             mountainSurface.populateTopLayer(chunkX, chunkZ, decorationBiomes);
         }
+        // Modded overlay biomes (e.g. Thaumcraft's Magical Forest) get the vanilla
+        // biome.decorate pass they were designed for; the 1.18 pipeline above only
+        // knows the vanilla projection. Sits inside the same Decorate Pre/Post pair.
+        decorateModdedBiome(chunkX, chunkZ);
         forgeEvents.decorationPost();
         TerrainColumn column = columns.column(chunkX, chunkZ);
 
@@ -350,9 +372,69 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
         forgeEvents.populationPost(villageGenerated);
     }
 
+    /**
+     * Runs the vanilla {@code biome.decorate} pass for the dominant modded overlay biome of
+     * the chunk, using the same per-chunk random seeding as the 1.12 overworld generator.
+     * Mod decorators are outside our control, so a failing one is reported once and
+     * skipped instead of taking the server down mid-population.
+     */
+    private void decorateModdedBiome(int chunkX, int chunkZ) {
+        if (!biomeOverlay.isEnabled()) {
+            return;
+        }
+        Biome[] modded = biomeOverlay.moddedBlockBiomes(
+            chunkX << 4, chunkZ << 4, TerrainColumn.WIDTH, TerrainColumn.WIDTH);
+        Biome dominant = dominantModdedBiome(modded);
+        if (dominant == null) {
+            return;
+        }
+        long seed = world.getSeed();
+        Random random = new Random(seed);
+        long xFactor = random.nextLong() / 2L * 2L + 1L;
+        long zFactor = random.nextLong() / 2L * 2L + 1L;
+        random.setSeed((long) chunkX * xFactor ^ (long) chunkZ * zFactor ^ seed);
+        try {
+            dominant.decorate(world, random,
+                new BlockPos(chunkX << 4, 0, chunkZ << 4));
+        } catch (RuntimeException failure) {
+            if (!moddedDecorationFailed) {
+                LOGGER.warn("Modded biome decoration failed for {}; skipping it from now on",
+                        dominant.getRegistryName(), failure);
+                moddedDecorationFailed = true;
+            }
+        }
+    }
+
+    /** Majority vote over the chunk's modded overlay cells; null when there are none. */
+    static Biome dominantModdedBiome(Biome[] modded) {
+        if (modded == null) {
+            return null;
+        }
+        Biome dominant = null;
+        int dominantCount = 0;
+        for (int index = 0; index < modded.length; ++index) {
+            Biome candidate = modded[index];
+            if (candidate == null) {
+                continue;
+            }
+            if (candidate != dominant) {
+                int count = 0;
+                for (int inner = index; inner < modded.length; ++inner) {
+                    if (modded[inner] == candidate) {
+                        ++count;
+                    }
+                }
+                if (dominant == null || count > dominantCount) {
+                    dominant = candidate;
+                    dominantCount = count;
+                }
+            }
+        }
+        return dominant;
+    }
+
     private static DecorateBiomeEvent.Decorate.EventType decorationType(
-            V118OrePlacements.SpecialFeature feature) {
-        switch (feature) {
+            V118OrePlacements.SpecialFeature feature) {        switch (feature) {
             case DISK_SAND:
                 return DecorateBiomeEvent.Decorate.EventType.SAND;
             case DISK_CLAY:

@@ -22,6 +22,11 @@ final class ExtendedBiomeStorageCompat {
         return ADAPTER.replace(chunk, biomeIds);
     }
 
+    /** Returns whether extended (wider-than-byte) biome storage is installed. */
+    static boolean isAvailable() {
+        return ADAPTER != Adapter.NONE;
+    }
+
     private static Adapter loadAdapter() {
         Class<?> apiClass;
         try {
