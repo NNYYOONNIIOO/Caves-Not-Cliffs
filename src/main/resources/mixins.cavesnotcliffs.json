@@ -6,5 +6,8 @@
     "refmap": "mixins.cavesnotcliffs.refmap.json",
     "mixins": [
         "CauldronMixin"
+    ],
+    "client": [
+        "GuiOverlayDebugMixin"
     ]
 }

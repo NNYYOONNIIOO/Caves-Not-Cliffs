@@ -12,7 +12,13 @@
   The F3 debug line and biome tint reads (`World.getBiome` through the vertical biome
   resolver) now also respect the overlay: a modded biome claim from the chunk array wins
   over the 1.18 climate projection at the surface, while lush/dripstone cave biomes still
-  override it underground.
+  override it underground. Lush caves and dripstone caves are now real registered biomes
+  (`cavesnotcliffs:lush_caves` / `cavesnotcliffs:dripstone_caves`, spawn lists copied from
+  their previous vanilla projection targets), so F3 and biome-reading mods report them
+  instead of "Forest"/"Extreme Hills".
+- Fix the F3 debug screen showing "Outside of world..." below Y=0 in extended-height
+  worlds: the vanilla overlay hardcoded a 0..256 window (new client-side
+  `GuiOverlayDebugMixin`).
 - Fix a startup crash when another mod (e.g. Better With Mods) had already removed the
   vanilla pumpkin recipes that Caves Not Cliffs replaces (issue #15).
 - When another mod changes the vanilla farmer trades, the plain-pumpkin trade rewrite is

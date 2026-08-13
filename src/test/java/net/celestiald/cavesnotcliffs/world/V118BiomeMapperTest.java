@@ -1,5 +1,6 @@
 package net.celestiald.cavesnotcliffs.world;
 
+import net.celestiald.cavesnotcliffs.content.CaveBiomeContent;
 import net.celestiald.cavesnotcliffs.content.MountainBiomeContent;
 import net.celestiald.cavesnotcliffs.content.MountainBiomeContent.Definition;
 import net.celestiald.cavesnotcliffs.worldgen.v118.V118Biome;
@@ -34,7 +35,7 @@ public class V118BiomeMapperTest {
             {V118Biome.DEEP_LUKEWARM_OCEAN, "minecraft:deep_ocean"},
             {V118Biome.DEEP_OCEAN, "minecraft:deep_ocean"},
             {V118Biome.DESERT, "minecraft:desert"},
-            {V118Biome.DRIPSTONE_CAVES, "minecraft:extreme_hills"},
+            {V118Biome.DRIPSTONE_CAVES, "cavesnotcliffs:dripstone_caves"},
             {V118Biome.ERODED_BADLANDS, "minecraft:mutated_mesa"},
             {V118Biome.FLOWER_FOREST, "minecraft:mutated_forest"},
             {V118Biome.FOREST, "minecraft:forest"},
@@ -46,7 +47,7 @@ public class V118BiomeMapperTest {
             {V118Biome.JAGGED_PEAKS, "cavesnotcliffs:jagged_peaks"},
             {V118Biome.JUNGLE, "minecraft:jungle"},
             {V118Biome.LUKEWARM_OCEAN, "minecraft:ocean"},
-            {V118Biome.LUSH_CAVES, "minecraft:forest"},
+            {V118Biome.LUSH_CAVES, "cavesnotcliffs:lush_caves"},
             {V118Biome.MEADOW, "cavesnotcliffs:meadow"},
             {V118Biome.MUSHROOM_FIELDS, "minecraft:mushroom_island"},
             {V118Biome.OCEAN, "minecraft:ocean"},
@@ -92,7 +93,8 @@ public class V118BiomeMapperTest {
             Biome resolved = mapper.biomeFor(biome);
             assertNotNull(resolved);
             int id = Biome.getIdForBiome(resolved);
-            if (MountainBiomeContent.isMountainBiome(biome)) {
+            if (MountainBiomeContent.isMountainBiome(biome)
+                    || CaveBiomeContent.isCaveBiome(biome)) {
                 // Forge assigns the numeric ID during the real Register<Biome> event. The
                 // resolver seam keeps this unit test out of the intentionally locked registry.
                 assertEquals(V118BiomeMapper.registryId(biome),
@@ -117,8 +119,11 @@ public class V118BiomeMapperTest {
 
     private static V118BiomeMapper mapperWithMountainRegistry() {
         return V118BiomeMapper.fromResolver(location -> {
-            Biome mountain = MountainBiomeContent.biomeFor(location);
-            return mountain == null ? Biome.REGISTRY.getObject(location) : mountain;
+            Biome nativeBiome = MountainBiomeContent.biomeFor(location);
+            if (nativeBiome == null) {
+                nativeBiome = CaveBiomeContent.biomeFor(location);
+            }
+            return nativeBiome == null ? Biome.REGISTRY.getObject(location) : nativeBiome;
         });
     }
 }

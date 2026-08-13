@@ -217,8 +217,12 @@ public class V118BiomeProviderTest {
 
     private static V118BiomeMapper mapper() {
         return V118BiomeMapper.fromResolver(location -> {
-            Biome mountain = MountainBiomeContent.biomeFor(location);
-            return mountain == null ? Biome.REGISTRY.getObject(location) : mountain;
+            Biome nativeBiome = MountainBiomeContent.biomeFor(location);
+            if (nativeBiome == null) {
+                nativeBiome = net.celestiald.cavesnotcliffs.content.CaveBiomeContent
+                    .biomeFor(location);
+            }
+            return nativeBiome == null ? Biome.REGISTRY.getObject(location) : nativeBiome;
         });
     }
 }

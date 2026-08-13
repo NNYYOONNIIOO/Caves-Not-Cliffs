@@ -99,7 +99,7 @@ public final class V118BiomeMapper {
         alias(aliases, V118Biome.DEEP_LUKEWARM_OCEAN, "deep_ocean");
         alias(aliases, V118Biome.DEEP_OCEAN, "deep_ocean");
         alias(aliases, V118Biome.DESERT, "desert");
-        alias(aliases, V118Biome.DRIPSTONE_CAVES, "extreme_hills");
+        projection(aliases, V118Biome.DRIPSTONE_CAVES, "cavesnotcliffs:dripstone_caves");
         alias(aliases, V118Biome.ERODED_BADLANDS, "mutated_mesa");
         alias(aliases, V118Biome.FLOWER_FOREST, "mutated_forest");
         alias(aliases, V118Biome.FOREST, "forest");
@@ -111,7 +111,7 @@ public final class V118BiomeMapper {
         projection(aliases, V118Biome.JAGGED_PEAKS, "cavesnotcliffs:jagged_peaks");
         alias(aliases, V118Biome.JUNGLE, "jungle");
         alias(aliases, V118Biome.LUKEWARM_OCEAN, "ocean");
-        alias(aliases, V118Biome.LUSH_CAVES, "forest");
+        projection(aliases, V118Biome.LUSH_CAVES, "cavesnotcliffs:lush_caves");
         projection(aliases, V118Biome.MEADOW, "cavesnotcliffs:meadow");
         alias(aliases, V118Biome.MUSHROOM_FIELDS, "mushroom_island");
         alias(aliases, V118Biome.OCEAN, "ocean");
