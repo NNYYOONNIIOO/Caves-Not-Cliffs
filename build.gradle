@@ -13,7 +13,7 @@ buildscript {
 apply plugin: 'net.minecraftforge.gradle.forge'
 apply plugin: 'org.spongepowered.mixin'
 
-version = '2.0.2'
+version = '2.0.3'
 group = 'net.celestiald'
 archivesBaseName = 'cavesnotcliffs'
 
@@ -73,6 +73,40 @@ mixin {
     add sourceSets.main, 'mixins.cavesnotcliffs.refmap.json'
 }
 
+// The Mixin AP writes the refmap to build/tmp/compileJava but does not place it
+// on the classpath in this FG 2.3 + mixingradle 0.6 setup. Copy it into the
+// compiled-classes output so it is on the classpath (and gets packed into the jar).
+task copyMixinRefmap(type: Copy, dependsOn: compileJava) {
+    from "${buildDir}/tmp/compileJava/compileJava-refmap.json"
+    into "${buildDir}/classes/java/main"
+    rename { 'mixins.cavesnotcliffs.refmap.json' }
+}
+
+// The Mixin AP cannot resolve the static @Shadow field BlockCauldron.LEVEL to its SRG
+// name — the refmap entry is absent after AP runs and the production jar then crashes at
+// startup with "@Shadow field LEVEL was not located". Patch it in manually using the SRG
+// name from mcp-srg.srg (same workaround CaveBiomesAPI uses for MixinWorld).
+task patchMixinRefmap(dependsOn: copyMixinRefmap) {
+    def refmapPath = "${buildDir}/classes/java/main/mixins.cavesnotcliffs.refmap.json"
+    outputs.file refmapPath
+    doLast {
+        def refmapFile = new File(refmapPath)
+        if (refmapFile.exists()) {
+            def refmap = new groovy.json.JsonSlurper().parse(refmapFile)
+            def mixin = 'net/celestiald/cavesnotcliffs/mixin/CauldronMixin'
+            def mapped = 'Lnet/minecraft/block/BlockCauldron;field_176591_a'
+            if (!refmap.mappings.containsKey(mixin)) refmap.mappings[mixin] = [:]
+            refmap.mappings[mixin]['LEVEL'] = mapped
+            if (refmap.data?.searge != null) {
+                if (!refmap.data.searge.containsKey(mixin)) refmap.data.searge[mixin] = [:]
+                refmap.data.searge[mixin]['LEVEL'] = mapped
+            }
+            refmapFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(refmap))
+        }
+    }
+}
+classes.dependsOn patchMixinRefmap
+
 jar {
     manifest {
         attributes(
@@ -85,6 +119,9 @@ jar {
             'ForceLoadAsMod': 'true'
         )
     }
+    // The patched refmap from the classes output and the mixin plugin's own refmap
+    // contribution would land in the jar twice; keep the first (patched) copy.
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 // ForgeGradle's reobf task converts development/MCP member names to the SRG names expected by a
@@ -195,6 +232,13 @@ task verifyReleaseJar(dependsOn: reobfJar) {
             }
             if (zip.getEntry('mixins.cavesnotcliffs.refmap.json') == null) {
                 throw new GradleException('Production jar is missing the mixin refmap (reobf did not remap the mixin)')
+            }
+            def refmapJson = new groovy.json.JsonSlurper()
+                .parseText(readText('mixins.cavesnotcliffs.refmap.json'))
+            def cauldronMappings = refmapJson.data?.searge?.'net/celestiald/cavesnotcliffs/mixin/CauldronMixin'
+            if (cauldronMappings == null || cauldronMappings['LEVEL'] !=
+                    'Lnet/minecraft/block/BlockCauldron;field_176591_a') {
+                throw new GradleException('Production refmap is missing the CauldronMixin LEVEL field mapping')
             }
             if (zip.getEntry('net/celestiald/cavesnotcliffs/mixin/CauldronMixin.class') == null) {
                 throw new GradleException('Production jar is missing the cauldron mixin')

@@ -1,7 +1,26 @@
 # Changelog
 
-## Unreleased
+## 2.0.3
 
+- Support modded surface biomes in native-profile worlds: biomes other mods add through
+  Forge's BiomeManager (e.g. Thaumcraft's Magical Forest) now overlay the 1.18 climate
+  projection — they generate in the world, drive biome tints, and get their vanilla
+  `biome.decorate` pass, so biome-locked mod content like Silverwood and Greatwood trees
+  generates again (issue #7). Biome search tools (Nature's Compass) can locate these
+  overlay biomes: `findBiomePosition` now consults the overlay too, sampled at the same
+  block scale the chunk biome array is written with, so reported positions are exact.
+  The F3 debug line and biome tint reads (`World.getBiome` through the vertical biome
+  resolver) now also respect the overlay: a modded biome claim from the chunk array wins
+  over the 1.18 climate projection at the surface, while lush/dripstone cave biomes still
+  override it underground.
+- Fix a startup crash when another mod (e.g. Better With Mods) had already removed the
+  vanilla pumpkin recipes that Caves Not Cliffs replaces (issue #15).
+- When another mod changes the vanilla farmer trades, the plain-pumpkin trade rewrite is
+  now skipped with a warning instead of crashing (issue #15).
+- Fix deepslate and infested deepslate generating sideways: the pillar default state was
+  left at axis=X and worldgen places the default state; both now default to axis=Y.
+- Fix the production jar crashing at startup: the CauldronMixin refmap was missing the SRG
+  mapping for the shadowed `LEVEL` field (`@Shadow field LEVEL was not located`).
 - Pointed dripstone is no longer a waterlogged block pair: the hidden
   `pointed_dripstone_waterlogged` companion block is gone and waterlogging is handled
   through the optional Fluidlogged API mod when it is installed (without it, dripstone
