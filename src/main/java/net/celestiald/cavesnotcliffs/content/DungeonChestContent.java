@@ -395,6 +395,9 @@ public final class DungeonChestContent {
 
     private static EnumFacing connectionDirection(IBlockState state) {
         ChestPart part = state.getValue(CHEST_PART);
+        if (!state.getPropertyNames().contains(CHEST_PART)) {
+            return null;
+        }
         if (part == ChestPart.SINGLE) {
             return null;
         }
