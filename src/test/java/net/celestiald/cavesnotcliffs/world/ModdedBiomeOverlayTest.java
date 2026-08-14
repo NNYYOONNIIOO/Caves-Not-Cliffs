@@ -75,6 +75,23 @@ public class ModdedBiomeOverlayTest {
     }
 
     @Test
+    public void moddedDecoratorRequiresAUniformPopulationRegion() {
+        ModdedBiomeOverlay uniform = ModdedBiomeOverlay.of(fixedSampler(
+                null, new Biome[] {
+                        magicalForest, magicalForest,
+                        magicalForest, magicalForest
+                }));
+        assertSame(magicalForest, uniform.uniformModdedBiome(0, 0, 2, 2));
+
+        ModdedBiomeOverlay mixed = ModdedBiomeOverlay.of(fixedSampler(
+                null, new Biome[] {
+                        magicalForest, magicalForest,
+                        magicalForest, Biomes.FOREST
+                }));
+        assertNull(mixed.uniformModdedBiome(0, 0, 2, 2));
+    }
+
+    @Test
     public void disabledOverlayPassesEverythingThrough() {
         ModdedBiomeOverlay overlay = ModdedBiomeOverlay.disabled();
         assertFalse(overlay.isEnabled());

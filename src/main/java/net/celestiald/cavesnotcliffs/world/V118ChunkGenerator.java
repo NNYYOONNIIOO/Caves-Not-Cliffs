@@ -360,7 +360,8 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
         }
         // Modded overlay biomes (e.g. Thaumcraft's Magical Forest) get the vanilla
         // biome.decorate pass they were designed for; the 1.18 pipeline above only
-        // knows the vanilla projection. Sits inside the same Decorate Pre/Post pair.
+        // knows the vanilla projection. Mixed population regions are skipped so a
+        // modded decorator cannot cross a biome boundary.
         decorateModdedBiome(chunkX, chunkZ);
         forgeEvents.decorationPost();
         TerrainColumn column = columns.column(chunkX, chunkZ);
@@ -373,19 +374,19 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
     }
 
     /**
-     * Runs the vanilla {@code biome.decorate} pass for the dominant modded overlay biome of
-     * the chunk, using the same per-chunk random seeding as the 1.12 overworld generator.
-     * Mod decorators are outside our control, so a failing one is reported once and
-     * skipped instead of taking the server down mid-population.
+     * Runs a modded biome's vanilla decorator only when the complete 16x16 population area used
+     * by vanilla's random decoration offsets belongs to that one modded biome. This keeps the
+     * dispatch generic while preventing a decorator from crossing a mixed-biome boundary.
      */
     private void decorateModdedBiome(int chunkX, int chunkZ) {
         if (!biomeOverlay.isEnabled()) {
             return;
         }
-        Biome[] modded = biomeOverlay.moddedBlockBiomes(
-            chunkX << 4, chunkZ << 4, TerrainColumn.WIDTH, TerrainColumn.WIDTH);
-        Biome dominant = dominantModdedBiome(modded);
-        if (dominant == null) {
+        int originX = chunkX << 4;
+        int originZ = chunkZ << 4;
+        Biome decoratorBiome = biomeOverlay.uniformModdedBiome(
+                originX + 8, originZ + 8, TerrainColumn.WIDTH, TerrainColumn.WIDTH);
+        if (decoratorBiome == null) {
             return;
         }
         long seed = world.getSeed();
@@ -394,43 +395,14 @@ public final class V118ChunkGenerator implements IChunkGenerator, IExtendedPopul
         long zFactor = random.nextLong() / 2L * 2L + 1L;
         random.setSeed((long) chunkX * xFactor ^ (long) chunkZ * zFactor ^ seed);
         try {
-            dominant.decorate(world, random,
-                new BlockPos(chunkX << 4, 0, chunkZ << 4));
+            decoratorBiome.decorate(world, random, new BlockPos(originX, 0, originZ));
         } catch (RuntimeException failure) {
             if (!moddedDecorationFailed) {
                 LOGGER.warn("Modded biome decoration failed for {}; skipping it from now on",
-                        dominant.getRegistryName(), failure);
+                        decoratorBiome.getRegistryName(), failure);
                 moddedDecorationFailed = true;
             }
         }
-    }
-
-    /** Majority vote over the chunk's modded overlay cells; null when there are none. */
-    static Biome dominantModdedBiome(Biome[] modded) {
-        if (modded == null) {
-            return null;
-        }
-        Biome dominant = null;
-        int dominantCount = 0;
-        for (int index = 0; index < modded.length; ++index) {
-            Biome candidate = modded[index];
-            if (candidate == null) {
-                continue;
-            }
-            if (candidate != dominant) {
-                int count = 0;
-                for (int inner = index; inner < modded.length; ++inner) {
-                    if (modded[inner] == candidate) {
-                        ++count;
-                    }
-                }
-                if (dominant == null || count > dominantCount) {
-                    dominant = candidate;
-                    dominantCount = count;
-                }
-            }
-        }
-        return dominant;
     }
 
     private static DecorateBiomeEvent.Decorate.EventType decorationType(

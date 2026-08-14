@@ -112,6 +112,36 @@ final class ModdedBiomeOverlay {
         return vanilla;
     }
 
+    /**
+     * Returns a modded biome only when the complete sampled population region belongs to that
+     * same biome. A vanilla biome decorator receives a population region, not a single block;
+     * selecting a majority biome for a mixed region lets its decoration cross into neighbors.
+     */
+    Biome uniformModdedBiome(int blockX, int blockZ, int width, int length) {
+        if (width <= 0 || length <= 0) {
+            return null;
+        }
+        long expectedLong = (long) width * (long) length;
+        if (expectedLong > Integer.MAX_VALUE) {
+            return null;
+        }
+        int expected = (int) expectedLong;
+        Biome[] sampled = moddedBlockBiomes(blockX, blockZ, width, length);
+        if (sampled == null || sampled.length < expected || expected == 0) {
+            return null;
+        }
+        Biome candidate = sampled[0];
+        if (candidate == null) {
+            return null;
+        }
+        for (int index = 1; index < expected; ++index) {
+            if (sampled[index] != candidate) {
+                return null;
+            }
+        }
+        return candidate;
+    }
+
     static boolean isModded(Biome biome) {
         return biome != null
                 && biome.getRegistryName() != null
